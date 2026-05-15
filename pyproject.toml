@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "m365-service-comms-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Read-only Model Context Protocol (MCP) server for the Microsoft Graph Service Communications API — exposes M365 service health and Message Center posts to AI agents."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -44,6 +44,7 @@ dev = [
 ]
 
 [project.scripts]
+m365-service-comms-mcp = "m365_service_comms_mcp.__main__:main"
 m365-svc-comms-mcp = "m365_service_comms_mcp.__main__:main"
 
 [project.urls]

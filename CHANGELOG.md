@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-15
+
+### Fixed
+
+- Console script `m365-service-comms-mcp` now matches the package name, so
+  `uvx m365-service-comms-mcp` works without `--from` redirection. The original
+  `m365-svc-comms-mcp` script remains as an alias for backward compatibility.
+
 ## [0.1.0] - 2026-05-15
 
 ### Added
@@ -29,5 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exponential-backoff retry on 429 / 5xx via `tenacity`.
 - 68 unit tests; 80% line coverage overall, 100% on tool code.
 
-[Unreleased]: https://github.com/trobichaux/m365-service-comms-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/trobichaux/m365-service-comms-mcp/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/trobichaux/m365-service-comms-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/trobichaux/m365-service-comms-mcp/releases/tag/v0.1.0

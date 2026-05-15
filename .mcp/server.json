@@ -6,12 +6,12 @@
     "url": "https://github.com/trobichaux/m365-service-comms-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registry_name": "pypi",
       "name": "m365-service-comms-mcp",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "transport": { "type": "stdio" },
       "package_arguments": [],
       "environment_variables": [
