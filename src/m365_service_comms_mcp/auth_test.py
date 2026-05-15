@@ -50,6 +50,11 @@ def run_auth_test(
 
     print(f"Tenant ID : {config.tenant_id}", file=out)
     print(f"Client ID : {config.client_id}", file=out)
+    if config.using_default_client:
+        print(
+            "            (using the Microsoft Graph PowerShell public client \u2014 no Entra app registration needed)",
+            file=out,
+        )
     print(
         f"Auth flow : {'device-code' if config.prefer_device_code else 'interactive-browser (default)'}",
         file=out,

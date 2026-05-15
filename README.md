@@ -42,14 +42,41 @@ in Python so M365 admins on any platform can install it with a single
 
 ## Quickstart
 
-### Try it without a tenant (`--demo` mode)
+### Zero-setup quickstart (no app registration required)
 
-You can verify the MCP wire protocol works with your AI client *before*
-registering an Entra app or granting admin consent. The `--demo` flag returns
-canned sample data:
+You don't need to register your own Entra app — by default, the server uses the
+**Microsoft Graph PowerShell** well-known multi-tenant public client
+(`14d82eec-204b-4c2f-b7e8-296a70dab67e`) so any admin can sign in via browser
+and grant consent on first use.
 
 ```jsonc
 // .vscode/mcp.json (or any MCP-compatible client config)
+{
+  "servers": {
+    "m365-svc-comms": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["m365-service-comms-mcp"]
+    }
+  }
+}
+```
+
+Then ask your agent:
+
+> *List the M365 services and tell me which ones are degraded.*
+
+A browser will open the first time, prompting you to sign in to your tenant.
+On first sign-in, an admin must grant consent for the
+`ServiceHealth.Read.All` and `ServiceMessage.Read.All` Graph permissions
+(this is a one-click step in the consent prompt). Subsequent runs reuse the
+cached token \u2014 no browser unless the token expires.
+
+### Try it without any tenant (`--demo` mode)
+
+Verify the MCP wire protocol works with your AI client *before* signing in:
+
+```jsonc
 {
   "servers": {
     "m365-svc-comms-demo": {
@@ -61,24 +88,35 @@ canned sample data:
 }
 ```
 
-Then ask your agent:
-
-> *List the M365 services and tell me which ones are degraded.*
-
 You should see 3 services returned, with **Microsoft Teams** flagged as
 `serviceDegradation` (canned data).
 
-### Run against a real tenant
+### Use your own Entra app registration (optional)
 
-The full setup is **5 steps**:
+If you want a dedicated audit identity in your tenant (so audit logs show
+your app's display name instead of "Microsoft Graph PowerShell"), register
+your own Entra app following [Entra app registration](#entra-app-registration)
+below, then set `M365_TENANT_ID` and `M365_CLIENT_ID`.
 
-1. Pick a tenant where you can grant admin consent (see
-   [Recommended testing tenant](#recommended-testing-tenant)).
-2. Register a Microsoft Entra app (see
-   [Entra app registration](#entra-app-registration)).
-3. Install `uv`: `pip install uv` (or follow [official install instructions](https://docs.astral.sh/uv/getting-started/installation/)).
-4. Configure your MCP client (see [MCP client configuration](#mcp-client-configuration)).
-5. Verify with `uvx m365-service-comms-mcp --auth-test`.
+### Verify your setup
+
+```sh
+uvx m365-service-comms-mcp --auth-test
+```
+
+You should see (using defaults):
+
+```
+Tenant ID : organizations
+Client ID : 14d82eec-204b-4c2f-b7e8-296a70dab67e
+            (using the Microsoft Graph PowerShell public client \u2014 no Entra app registration needed)
+Auth flow : interactive-browser (default)
+Acquiring access token \u2026
+\u2713  Token acquired.
+Probing https://graph.microsoft.com/v1.0/admin/serviceAnnouncement/healthOverviews?$top=1 \u2026
+\u2713  Graph responded HTTP 200 (returned 1 healthOverview record(s)).
+Auth test passed.
+```
 
 ## Recommended testing tenant
 
@@ -92,32 +130,33 @@ sandbox tenant. It comes with:
 - Full Global Administrator rights for the tenant owner
 - Auto-renewing 90-day subscription as long as you stay active
 
-Sign up takes about 10 minutes. Once approved, your tenant is ready to register
-an Entra app and grant the Service Communications scopes.
+Sign up takes about 10 minutes.
 
-## Entra app registration
+## Entra app registration (optional, advanced)
 
-You only need to do this once per tenant. The walkthrough below assumes the
+You only need this if you want a dedicated audit identity instead of the
+default "Microsoft Graph PowerShell" client. The walkthrough below assumes the
 [Microsoft Entra admin center](https://entra.microsoft.com) UI as of 2026.
 
-1. Go to **Microsoft Entra admin center → Identity → Applications →
-   App registrations → + New registration**.
+1. Go to **Microsoft Entra admin center \u2192 Identity \u2192 Applications \u2192
+   App registrations \u2192 + New registration**.
 2. **Name**: `m365-service-comms-mcp` (or whatever you like).
 3. **Supported account types**: *Accounts in this organizational directory only
    (single tenant)*.
 4. **Redirect URI**: select **Public client/native (mobile & desktop)** and
    enter `http://localhost`.
 5. Click **Register**. Copy the **Application (client) ID** and **Directory
-   (tenant) ID** from the Overview page — these become `M365_CLIENT_ID` and
+   (tenant) ID** from the Overview page \u2014 these become `M365_CLIENT_ID` and
    `M365_TENANT_ID` below.
-6. Go to **API permissions → + Add a permission → Microsoft Graph → Delegated
+6. Go to **API permissions \u2192 + Add a permission \u2192 Microsoft Graph \u2192 Delegated
    permissions**. Add:
    - `ServiceHealth.Read.All`
    - `ServiceMessage.Read.All`
 7. Click **Grant admin consent for &lt;your tenant&gt;** and confirm. Both
    permissions should now show **Granted**.
 
-The signed-in user must hold one of these directory roles:
+The signed-in user must hold one of these directory roles (regardless of
+whether you use the default client or your own app):
 
 - Service Support Administrator
 - Helpdesk Administrator

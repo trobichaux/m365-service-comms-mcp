@@ -35,17 +35,6 @@ def env_set(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("M365_AUTH_DEVICE_CODE", raising=False)
 
 
-def test_returns_2_on_missing_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("M365_TENANT_ID", raising=False)
-    monkeypatch.delenv("M365_CLIENT_ID", raising=False)
-    err = io.StringIO()
-
-    rc = run_auth_test(out=io.StringIO(), err=err)
-
-    assert rc == 2
-    assert "Configuration error" in err.getvalue()
-
-
 def test_returns_1_when_token_acquisition_fails(env_set: None) -> None:
     err = io.StringIO()
     provider = _StubProvider(raises=RuntimeError("user closed browser"))
@@ -55,6 +44,27 @@ def test_returns_1_when_token_acquisition_fails(env_set: None) -> None:
     assert rc == 1
     assert "Failed to acquire token" in err.getvalue()
     assert "user closed browser" in err.getvalue()
+
+
+def test_uses_defaults_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    httpx_mock: HTTPXMock,
+) -> None:
+    monkeypatch.delenv("M365_TENANT_ID", raising=False)
+    monkeypatch.delenv("M365_CLIENT_ID", raising=False)
+    httpx_mock.add_response(
+        url=_GRAPH_HEALTH_PROBE,
+        method="GET",
+        json={"value": []},
+    )
+    out = io.StringIO()
+
+    rc = run_auth_test(out=out, err=io.StringIO(), auth_provider=_StubProvider())
+
+    assert rc == 0
+    text = out.getvalue()
+    assert "organizations" in text
+    assert "Microsoft Graph PowerShell public client" in text
 
 
 def test_returns_0_on_successful_graph_call(

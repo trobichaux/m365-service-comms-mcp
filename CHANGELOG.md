@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-15
+
+### Added
+
+- **Zero-setup default client.** `M365_TENANT_ID` and `M365_CLIENT_ID` are now
+  optional. When unset, the server falls back to the well-known **Microsoft
+  Graph PowerShell** multi-tenant public client
+  (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) and tenant
+  ID `organizations`, so customers can run `uvx m365-service-comms-mcp
+  --auth-test` and complete sign-in via browser without registering their own
+  Entra app. The signed-in user still must hold an admin role and grant
+  consent to `ServiceHealth.Read.All` / `ServiceMessage.Read.All` on first
+  sign-in.
+- `--auth-test` output now indicates when the default public client is in use.
+
+### Changed
+
+- `AuthConfig.from_env` no longer raises on missing env vars; it applies
+  defaults instead. To restore the original "fail fast" behaviour, set both
+  variables explicitly.
+
 ## [0.1.1] - 2026-05-15
 
 ### Fixed
@@ -37,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exponential-backoff retry on 429 / 5xx via `tenacity`.
 - 68 unit tests; 80% line coverage overall, 100% on tool code.
 
-[Unreleased]: https://github.com/trobichaux/m365-service-comms-mcp/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/trobichaux/m365-service-comms-mcp/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/trobichaux/m365-service-comms-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/trobichaux/m365-service-comms-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/trobichaux/m365-service-comms-mcp/releases/tag/v0.1.0

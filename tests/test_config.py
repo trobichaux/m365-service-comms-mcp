@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import pytest
 
-from m365_service_comms_mcp.config import DEFAULT_GRAPH_SCOPE, AuthConfig, ConfigError
+from m365_service_comms_mcp.config import (
+    DEFAULT_GRAPH_SCOPE,
+    DEFAULT_PUBLIC_CLIENT_ID,
+    DEFAULT_TENANT_ID,
+    AuthConfig,
+)
 
 
-def test_from_env_reads_required_vars() -> None:
+def test_from_env_reads_explicit_vars() -> None:
     cfg = AuthConfig.from_env({"M365_TENANT_ID": "tenant-guid", "M365_CLIENT_ID": "client-guid"})
     assert cfg.tenant_id == "tenant-guid"
     assert cfg.client_id == "client-guid"
     assert cfg.scopes == (DEFAULT_GRAPH_SCOPE,)
     assert cfg.prefer_device_code is False
+    assert cfg.using_default_client is False
 
 
 def test_from_env_strips_whitespace() -> None:
@@ -21,20 +27,32 @@ def test_from_env_strips_whitespace() -> None:
     assert cfg.client_id == "client"
 
 
-@pytest.mark.parametrize(
-    "env",
-    [
-        {},
-        {"M365_TENANT_ID": "tenant"},
-        {"M365_CLIENT_ID": "client"},
-        {"M365_TENANT_ID": "", "M365_CLIENT_ID": "client"},
-        {"M365_TENANT_ID": "tenant", "M365_CLIENT_ID": "   "},
-    ],
-)
-def test_from_env_raises_when_missing(env: dict[str, str]) -> None:
-    with pytest.raises(ConfigError) as info:
-        AuthConfig.from_env(env)
-    assert "Missing required environment variable" in str(info.value)
+def test_from_env_falls_back_to_default_client_when_unset() -> None:
+    cfg = AuthConfig.from_env({})
+    assert cfg.client_id == DEFAULT_PUBLIC_CLIENT_ID
+    assert cfg.tenant_id == DEFAULT_TENANT_ID
+    assert cfg.using_default_client is True
+
+
+def test_from_env_falls_back_to_default_client_when_blank() -> None:
+    cfg = AuthConfig.from_env({"M365_TENANT_ID": "  ", "M365_CLIENT_ID": ""})
+    assert cfg.client_id == DEFAULT_PUBLIC_CLIENT_ID
+    assert cfg.tenant_id == DEFAULT_TENANT_ID
+    assert cfg.using_default_client is True
+
+
+def test_from_env_uses_custom_tenant_with_default_client() -> None:
+    cfg = AuthConfig.from_env({"M365_TENANT_ID": "contoso.onmicrosoft.com"})
+    assert cfg.tenant_id == "contoso.onmicrosoft.com"
+    assert cfg.client_id == DEFAULT_PUBLIC_CLIENT_ID
+    assert cfg.using_default_client is True
+
+
+def test_from_env_explicit_client_disables_using_default_flag() -> None:
+    cfg = AuthConfig.from_env({"M365_CLIENT_ID": "11111111-2222-3333-4444-555555555555"})
+    assert cfg.client_id == "11111111-2222-3333-4444-555555555555"
+    assert cfg.tenant_id == DEFAULT_TENANT_ID
+    assert cfg.using_default_client is False
 
 
 @pytest.mark.parametrize("flag", ["1", "true", "TRUE", "Yes", "on"])
