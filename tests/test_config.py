@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from m365_service_comms_mcp.config import (
-    DEFAULT_GRAPH_SCOPE,
     DEFAULT_PUBLIC_CLIENT_ID,
     DEFAULT_TENANT_ID,
+    GRAPH_SCOPES,
     AuthConfig,
 )
 
@@ -16,7 +16,7 @@ def test_from_env_reads_explicit_vars() -> None:
     cfg = AuthConfig.from_env({"M365_TENANT_ID": "tenant-guid", "M365_CLIENT_ID": "client-guid"})
     assert cfg.tenant_id == "tenant-guid"
     assert cfg.client_id == "client-guid"
-    assert cfg.scopes == (DEFAULT_GRAPH_SCOPE,)
+    assert cfg.scopes == GRAPH_SCOPES
     assert cfg.prefer_device_code is False
     assert cfg.using_default_client is False
 

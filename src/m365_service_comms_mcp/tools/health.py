@@ -11,8 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..graph_protocol import GraphClientProtocol
-
-MAX_TOP = 50
+from ._constants import MAX_TOP
 
 _TOOL_DESCRIPTION = (
     "List the current health status of every Microsoft 365 service the tenant "

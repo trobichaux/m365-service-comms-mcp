@@ -12,8 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..graph_protocol import GraphClientProtocol
-
-MAX_TOP = 50
+from ._constants import MAX_TOP
 
 # Categories accepted by the Graph serviceUpdateMessage resource.
 MessageCategory = Literal[

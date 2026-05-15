@@ -7,10 +7,20 @@ across the lifetime of the MCP server process.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
-DEFAULT_GRAPH_SCOPE = "https://graph.microsoft.com/.default"
+
+# Scopes used to call /admin/serviceAnnouncement/*. Requesting these explicitly
+# (rather than the broader ``.default``) keeps the first-time consent dialog
+# tight: the admin sees a 2-permission request, not the entire scope list of
+# whatever client app we're using.
+GRAPH_SCOPES: tuple[str, ...] = (
+    "https://graph.microsoft.com/ServiceHealth.Read.All",
+    "https://graph.microsoft.com/ServiceMessage.Read.All",
+)
+
 TOKEN_CACHE_NAME = "m365-svc-comms-mcp"
 
 # Microsoft's well-known multi-tenant public client used by the Microsoft Graph
@@ -23,10 +33,6 @@ DEFAULT_PUBLIC_CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
 # (consumer Microsoft accounts are excluded, which matches the Service
 # Communications API's tenant-only scope).
 DEFAULT_TENANT_ID = "organizations"
-
-
-class ConfigError(RuntimeError):
-    """Raised when required configuration is missing or malformed."""
 
 
 @dataclass(frozen=True)
@@ -42,9 +48,9 @@ class AuthConfig:
             the Microsoft Graph PowerShell public client
             (``14d82eec-204b-4c2f-b7e8-296a70dab67e``) so customers do not have
             to register their own app.
-        scopes: OAuth scopes to request. Defaults to the Graph ``.default``
-            scope, which resolves to whatever permissions admin consent has
-            granted to the client app on the customer's tenant.
+        scopes: OAuth scopes to request. Defaults to the explicit Service
+            Communications scopes so the admin-consent dialog only lists the
+            two permissions we actually use.
         prefer_device_code: When ``True``, force the device-code flow regardless
             of whether an interactive browser is available. Useful for headless
             CI / SSH scenarios. Set via ``M365_AUTH_DEVICE_CODE=1``.
@@ -52,22 +58,27 @@ class AuthConfig:
 
     tenant_id: str = DEFAULT_TENANT_ID
     client_id: str = DEFAULT_PUBLIC_CLIENT_ID
-    scopes: tuple[str, ...] = (DEFAULT_GRAPH_SCOPE,)
+    scopes: tuple[str, ...] = GRAPH_SCOPES
     prefer_device_code: bool = False
-    using_default_client: bool = True
+
+    @property
+    def using_default_client(self) -> bool:
+        """True iff ``client_id`` is the Microsoft Graph PowerShell well-known client."""
+
+        return self.client_id == DEFAULT_PUBLIC_CLIENT_ID
 
     @classmethod
-    def from_env(cls, env: dict[str, str] | None = None) -> AuthConfig:
+    def from_env(cls, env: Mapping[str, str] | None = None) -> AuthConfig:
         """Build an :class:`AuthConfig` from environment variables.
 
         Reads ``M365_TENANT_ID``, ``M365_CLIENT_ID``, and the optional
         ``M365_AUTH_DEVICE_CODE`` flag. Both ``M365_TENANT_ID`` and
-        ``M365_CLIENT_ID`` are now optional and fall back to safe defaults
+        ``M365_CLIENT_ID`` are optional and fall back to safe defaults
         (the Microsoft Graph PowerShell multi-tenant client) so the server
         runs out of the box without an Entra app registration.
         """
 
-        e = env if env is not None else os.environ
+        e: Mapping[str, str] = env if env is not None else os.environ
 
         tenant = (e.get("M365_TENANT_ID") or "").strip() or DEFAULT_TENANT_ID
         client = (e.get("M365_CLIENT_ID") or "").strip() or DEFAULT_PUBLIC_CLIENT_ID
@@ -79,5 +90,4 @@ class AuthConfig:
             tenant_id=tenant,
             client_id=client,
             prefer_device_code=prefer_device_code,
-            using_default_client=client == DEFAULT_PUBLIC_CLIENT_ID,
         )

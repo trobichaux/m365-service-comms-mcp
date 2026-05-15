@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 
 from . import __version__
 
@@ -15,7 +16,7 @@ def main() -> int:
     """
 
     parser = argparse.ArgumentParser(
-        prog="m365-svc-comms-mcp",
+        prog="m365-service-comms-mcp",
         description=(
             "Read-only MCP server for the Microsoft Graph Service Communications API. "
             "Exposes M365 service health and Message Center posts to AI agents."
@@ -45,6 +46,15 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    if args.auth_test and args.demo:
+        print(
+            "error: --auth-test and --demo cannot be combined. "
+            "--auth-test always exercises the real Microsoft Graph flow; "
+            "--demo replaces the Graph backend with canned data and skips auth.",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.auth_test:
         from .auth_test import run_auth_test

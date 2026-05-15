@@ -24,7 +24,16 @@ class GraphError(RuntimeError):
     message: str
     request_id: str | None = None
 
+    def __post_init__(self) -> None:
+        # Make sure ``RuntimeError.args`` carries our rendered message so
+        # logging frameworks that introspect ``exc.args`` still see something
+        # useful (the dataclass ``__init__`` would otherwise leave args empty).
+        super().__init__(self._render())
+
     def __str__(self) -> str:
+        return self._render()
+
+    def _render(self) -> str:
         parts = [f"HTTP {self.status_code}"]
         if self.code:
             parts.append(self.code)

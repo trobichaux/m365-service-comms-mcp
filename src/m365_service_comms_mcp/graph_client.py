@@ -10,9 +10,9 @@ endpoints used by the v0.1 tools:
 Cross-cutting concerns:
 
 - **Auth**: each request adds a fresh bearer token via :class:`GraphAuthProvider`.
-- **Retries**: HTTP 429 and 5xx (except 501) are retried up to four times with
-  exponential backoff using :mod:`tenacity`. ``Retry-After`` is honoured when
-  present.
+- **Retries**: HTTP 429 and retryable 5xx are retried up to ``max_attempts``
+  times. The wait between attempts uses the response's ``Retry-After`` header
+  when present, otherwise an exponential backoff.
 - **Errors**: non-success responses raise :class:`~m365_service_comms_mcp.errors.GraphError`
   with the Graph error envelope parsed out for the LLM.
 """
@@ -24,23 +24,35 @@ from typing import Any
 import httpx
 from tenacity import (
     AsyncRetrying,
+    RetryCallState,
     RetryError,
     retry_if_exception_type,
     stop_after_attempt,
     wait_random_exponential,
 )
 
+from . import __version__
 from .auth import GraphAuthProvider
 from .config import GRAPH_BASE_URL
 from .errors import GraphError, parse_graph_error
 
-_USER_AGENT = "m365-service-comms-mcp/0.1"
+_USER_AGENT = f"m365-service-comms-mcp/{__version__}"
 _DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 _RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRY_AFTER_SECONDS = 120.0
 
 
 class _Retryable(Exception):
-    """Sentinel raised inside the retry loop for transient failures."""
+    """Sentinel raised inside the retry loop for transient failures.
+
+    Carries the parsed :class:`GraphError` and the suggested wait time (parsed
+    from the ``Retry-After`` response header, when present).
+    """
+
+    def __init__(self, graph_error: GraphError, retry_after: float | None) -> None:
+        super().__init__(str(graph_error))
+        self.graph_error = graph_error
+        self.retry_after = retry_after
 
 
 class GraphClient:
@@ -52,11 +64,11 @@ class GraphClient:
         auth: GraphAuthProvider,
         base_url: str = GRAPH_BASE_URL,
         http_client: httpx.AsyncClient | None = None,
-        max_retries: int = 4,
+        max_attempts: int = 4,
     ) -> None:
         self._auth = auth
         self._base_url = base_url.rstrip("/")
-        self._max_retries = max_retries
+        self._max_attempts = max(1, max_attempts)
         self._owns_client = http_client is None
         self._client = http_client or httpx.AsyncClient(
             timeout=_DEFAULT_TIMEOUT,
@@ -130,28 +142,68 @@ class GraphClient:
 
         try:
             async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(self._max_retries),
-                wait=wait_random_exponential(multiplier=1, max=30),
+                stop=stop_after_attempt(self._max_attempts),
+                wait=_wait_strategy,
                 retry=retry_if_exception_type((_Retryable, httpx.TransportError)),
                 reraise=True,
             ):
                 with attempt:
                     return await _attempt()
         except _Retryable as retryable:
-            cause = retryable.__cause__
-            if isinstance(cause, GraphError):
-                raise cause from None
-            raise
+            raise retryable.graph_error from None
         except RetryError as exc:
             cause = exc.last_attempt.exception()
-            if isinstance(cause, _Retryable) and isinstance(cause.__cause__, GraphError):
-                raise cause.__cause__ from None
+            if isinstance(cause, _Retryable):
+                raise cause.graph_error from None
             if cause is not None:
                 raise cause from None
             raise
 
         # Unreachable, but keeps type checkers happy.
         return await _attempt()
+
+
+def _wait_strategy(retry_state: RetryCallState) -> float:
+    """Honour ``Retry-After`` from the response when present.
+
+    Falls back to bounded exponential backoff (``tenacity``'s
+    ``wait_random_exponential(multiplier=1, max=30)``) when the failure was a
+    transport error or the response did not include ``Retry-After``.
+    """
+
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, _Retryable) and exc.retry_after is not None:
+        return min(exc.retry_after, _MAX_RETRY_AFTER_SECONDS)
+
+    return wait_random_exponential(multiplier=1, max=30)(retry_state)
+
+
+def _parse_retry_after(response: httpx.Response) -> float | None:
+    """Parse the ``Retry-After`` header (RFC 9110): either a number of seconds
+    or an HTTP-date. Returns ``None`` when absent or unparseable.
+    """
+
+    raw = response.headers.get("retry-after")
+    if not raw:
+        return None
+    raw = raw.strip()
+
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        pass
+
+    try:
+        from email.utils import parsedate_to_datetime
+
+        target = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+
+    import datetime as _dt
+
+    now = _dt.datetime.now(tz=target.tzinfo or _dt.UTC)
+    return max(0.0, (target - now).total_seconds())
 
 
 def _interpret_response(response: httpx.Response) -> dict[str, Any]:
@@ -178,9 +230,7 @@ def _interpret_response(response: httpx.Response) -> dict[str, Any]:
             raw_text=response.text,
             request_id=request_id,
         )
-        retryable = _Retryable(str(graph_err))
-        retryable.__cause__ = graph_err
-        raise retryable
+        raise _Retryable(graph_err, _parse_retry_after(response))
 
     raise parse_graph_error(
         status_code=response.status_code,

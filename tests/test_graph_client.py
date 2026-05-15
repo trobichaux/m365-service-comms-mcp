@@ -26,7 +26,7 @@ class _StubProvider(GraphAuthProvider):
 
 @pytest.fixture
 async def client() -> GraphClient:
-    return GraphClient(auth=_StubProvider(), max_retries=2)
+    return GraphClient(auth=_StubProvider(), max_attempts=2)
 
 
 async def test_list_health_overviews_returns_parsed_json(
@@ -124,7 +124,7 @@ async def test_403_raises_graph_error_with_envelope(
 async def test_429_is_retried_then_succeeds(
     httpx_mock: HTTPXMock,
 ) -> None:
-    client = GraphClient(auth=_StubProvider(), max_retries=3)
+    client = GraphClient(auth=_StubProvider(), max_attempts=3)
     httpx_mock.add_response(
         url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/healthOverviews?%24top=25",
         method="GET",
@@ -143,10 +143,10 @@ async def test_429_is_retried_then_succeeds(
     assert result == {"value": []}
 
 
-async def test_429_after_max_retries_raises_graph_error(
+async def test_429_after_max_attempts_raises_graph_error(
     httpx_mock: HTTPXMock,
 ) -> None:
-    client = GraphClient(auth=_StubProvider(), max_retries=2)
+    client = GraphClient(auth=_StubProvider(), max_attempts=2)
     for _ in range(2):
         httpx_mock.add_response(
             url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/healthOverviews?%24top=25",
@@ -165,7 +165,7 @@ async def test_429_after_max_retries_raises_graph_error(
 async def test_transport_error_is_retried(
     httpx_mock: HTTPXMock,
 ) -> None:
-    client = GraphClient(auth=_StubProvider(), max_retries=3)
+    client = GraphClient(auth=_StubProvider(), max_attempts=3)
     httpx_mock.add_exception(httpx.ConnectError("DNS lookup failed"))
     httpx_mock.add_response(
         url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/healthOverviews?%24top=25",

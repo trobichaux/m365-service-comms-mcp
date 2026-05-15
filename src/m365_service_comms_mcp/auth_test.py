@@ -9,8 +9,7 @@ prints a human-readable summary so the customer can confirm:
 3. The signed-in user holds an admin role with at least
    :code:`ServiceHealth.Read.All` consented.
 
-Exits ``0`` on success, ``1`` on auth or Graph failure, ``2`` on configuration
-errors.
+Exits ``0`` on success, ``1`` on auth or Graph failure.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ from typing import TextIO
 import httpx
 
 from .auth import GraphAuthProvider
-from .config import GRAPH_BASE_URL, AuthConfig, ConfigError
+from .config import GRAPH_BASE_URL, AuthConfig
 
 _GRAPH_HEALTH_PROBE = f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/healthOverviews?$top=1"
 
@@ -42,11 +41,7 @@ def run_auth_test(
     out = out or sys.stdout
     err = err or sys.stderr
 
-    try:
-        config = AuthConfig.from_env()
-    except ConfigError as exc:
-        print(f"\u274c  Configuration error: {exc}", file=err)
-        return 2
+    config = AuthConfig.from_env()
 
     print(f"Tenant ID : {config.tenant_id}", file=out)
     print(f"Client ID : {config.client_id}", file=out)
@@ -59,6 +54,7 @@ def run_auth_test(
         f"Auth flow : {'device-code' if config.prefer_device_code else 'interactive-browser (default)'}",
         file=out,
     )
+    print(f"Scopes    : {', '.join(config.scopes)}", file=out)
     print("Acquiring access token \u2026", file=out)
 
     provider = auth_provider or GraphAuthProvider(config=config)
@@ -109,7 +105,7 @@ def run_auth_test(
             "    Most common causes:\n"
             "      \u2022 Admin consent not granted for ServiceHealth.Read.All / ServiceMessage.Read.All\n"
             "      \u2022 Signed-in user lacks Service Support / Helpdesk / Global Reader / Global Admin role\n"
-            "    See README.md \u2192 Troubleshooting.",
+            "    See README.md \u2192 Granting admin consent.",
             file=err,
         )
         return 1

@@ -7,7 +7,7 @@ import time
 from azure.core.credentials import AccessToken, TokenCredential
 
 from m365_service_comms_mcp.auth import GraphAuthProvider
-from m365_service_comms_mcp.config import DEFAULT_GRAPH_SCOPE, AuthConfig
+from m365_service_comms_mcp.config import GRAPH_SCOPES, AuthConfig
 
 
 class _FakeCredential(TokenCredential):
@@ -34,7 +34,7 @@ def test_get_token_uses_injected_factory() -> None:
     access = provider.get_token()
 
     assert access.token == "abc-123"
-    assert fake.calls == [(DEFAULT_GRAPH_SCOPE,)]
+    assert fake.calls == [GRAPH_SCOPES]
 
 
 def test_get_token_caches_credential_across_calls() -> None:
@@ -53,7 +53,7 @@ def test_get_token_caches_credential_across_calls() -> None:
     assert factory_calls == 1
 
 
-def test_get_token_passes_configured_scopes() -> None:
+async def test_get_token_passes_configured_scopes() -> None:
     fake = _FakeCredential()
     config = _make_config(
         scopes=(
@@ -62,6 +62,24 @@ def test_get_token_passes_configured_scopes() -> None:
         )
     )
     provider = GraphAuthProvider(config=config, _factory=lambda _cfg: fake)
+
+    provider.get_token()
+
+    assert fake.calls == [
+        (
+            "https://graph.microsoft.com/ServiceHealth.Read.All",
+            "https://graph.microsoft.com/ServiceMessage.Read.All",
+        )
+    ]
+
+
+def test_get_token_uses_default_explicit_scopes() -> None:
+    """Default config should request the two ServiceComms scopes explicitly,
+    not the broad ``.default`` scope (so admin consent is tightly scoped).
+    """
+
+    fake = _FakeCredential()
+    provider = GraphAuthProvider(config=AuthConfig(), _factory=lambda _cfg: fake)
 
     provider.get_token()
 

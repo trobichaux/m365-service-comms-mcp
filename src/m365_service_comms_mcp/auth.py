@@ -16,16 +16,22 @@ Token caching uses :class:`~azure.identity.TokenCachePersistenceOptions`, which
 stores tokens in the OS keyring (Windows DPAPI / macOS Keychain / Linux Secret
 Service) with a file fallback when the keyring is unavailable.
 
+**Stdio safety.** When the server is launched as an MCP child process the
+parent owns ``stdout`` for JSON-RPC framing. We therefore install a
+``prompt_callback`` on the device-code credential that writes to ``stderr``;
+the default callback prints to ``stdout`` and would corrupt the transport.
+
 v0.1 deliberately does **not** support client-secret or certificate
 (application-permission) flows. Those land in v1.0 — see ``../docs/plan.md``.
 """
 
 from __future__ import annotations
 
+import datetime as _dt
 import os
 import platform
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from azure.core.credentials import AccessToken, TokenCredential
@@ -58,8 +64,8 @@ class GraphAuthProvider:
     """
 
     config: AuthConfig
-    _credential: TokenCredential | None = None
-    _factory: CredentialFactory | None = None
+    _credential: TokenCredential | None = field(default=None, repr=False)
+    _factory: CredentialFactory | None = field(default=None, repr=False)
 
     def get_token(self) -> AccessToken:
         """Acquire (or refresh) an access token for Microsoft Graph.
@@ -88,6 +94,7 @@ def _default_credential_factory(config: AuthConfig) -> TokenCredential:
         return DeviceCodeCredential(
             tenant_id=config.tenant_id,
             client_id=config.client_id,
+            prompt_callback=_stderr_device_code_prompt,
             cache_persistence_options=cache_options,
         )
 
@@ -98,17 +105,43 @@ def _default_credential_factory(config: AuthConfig) -> TokenCredential:
     )
 
 
+def _stderr_device_code_prompt(
+    verification_uri: str,
+    user_code: str,
+    expires_on: _dt.datetime,
+) -> None:
+    """Print device-code instructions to **stderr**, never stdout.
+
+    The default ``DeviceCodeCredential`` prompt writes to stdout, which would
+    corrupt the JSON-RPC stream when this server runs as a stdio MCP child
+    process.
+    """
+
+    expires_local = expires_on.astimezone()
+    message = (
+        "\n[m365-service-comms-mcp] Sign-in required.\n"
+        f"  Open: {verification_uri}\n"
+        f"  Code: {user_code}\n"
+        f"  Expires at: {expires_local.isoformat(timespec='seconds')}\n"
+    )
+    print(message, file=sys.stderr, flush=True)
+
+
 def _looks_headless() -> bool:
     """Best-effort detection of headless environments.
 
     On Linux without ``DISPLAY`` or ``WAYLAND_DISPLAY`` we assume there is no
     browser to launch and fall back to the device-code flow. Windows and macOS
     almost always have a browser available, so we default to interactive there.
+
+    .. note::
+       We deliberately do **not** treat "stdin/stdout are pipes" as a headless
+       signal. When this server is launched by an MCP client (VS Code, Claude
+       Desktop, Cursor) over stdio, neither stream is a TTY \u2014 but the user is
+       sitting at a desktop with a perfectly good browser. Customers can still
+       force device code via ``M365_AUTH_DEVICE_CODE=1``.
     """
 
-    if platform.system() == "Linux" and not (
+    return platform.system() == "Linux" and not (
         os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
-    ):
-        return True
-
-    return not sys.stdout.isatty() and not sys.stdin.isatty()
+    )

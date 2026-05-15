@@ -13,8 +13,9 @@ from mcp.server.fastmcp import FastMCP
 
 from ..graph_protocol import GraphClientProtocol
 from . import health, messages
+from ._constants import MAX_TOP
 
-__all__ = ["register_tools"]
+__all__ = ["MAX_TOP", "register_tools"]
 
 
 def register_tools(mcp: FastMCP, client: GraphClientProtocol) -> None:

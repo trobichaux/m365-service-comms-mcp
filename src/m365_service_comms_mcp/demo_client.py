@@ -22,19 +22,17 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-DEMO_TENANT_TIMESTAMP = "2026-05-15T17:00:00Z"
+from .errors import GraphError
 
 
 class DemoGraphClient:
     """In-memory Graph stand-in. Returns deterministic sample data."""
 
     async def aclose(self) -> None:
-        # No resources to release.
-        return
+        """No resources to release."""
 
     async def list_health_overviews(self, *, top: int = 25) -> dict[str, Any]:
-        records = _HEALTH_OVERVIEWS[:top]
-        return {"value": records}
+        return {"value": _HEALTH_OVERVIEWS[:top]}
 
     async def list_messages(
         self,
@@ -51,10 +49,9 @@ class DemoGraphClient:
         for message in _MESSAGES:
             if message["id"].upper() == normalized:
                 return {**message, "body": _MESSAGE_BODIES.get(message["id"], {})}
+
         # Mirror the live client's error envelope shape so calling tools see the
         # same not-found behaviour they would in production.
-        from .errors import GraphError
-
         raise GraphError(
             status_code=404,
             code="ResourceNotFound",
