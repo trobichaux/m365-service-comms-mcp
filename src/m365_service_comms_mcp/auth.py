@@ -45,7 +45,8 @@ class CredentialFactory(Protocol):
     patching ``azure.identity``.
     """
 
-    def __call__(self, config: AuthConfig) -> TokenCredential: ...
+    def __call__(self, config: AuthConfig) -> TokenCredential:
+        """Construct a credential for the given configuration."""
 
 
 @dataclass

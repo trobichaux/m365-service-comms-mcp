@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -29,7 +28,6 @@ MessageSeverity = Literal["normal", "high", "critical"]
 # worrying about capitalization. Digit count of 4-8 covers historical IDs (some
 # old MC posts are only 4-5 digits) and current 6-7 digit IDs.
 _MESSAGE_ID_PATTERN = r"^[Mm][Cc][0-9]{4,8}$"
-_MESSAGE_ID_RE = re.compile(_MESSAGE_ID_PATTERN)
 
 
 _LIST_DESCRIPTION = (

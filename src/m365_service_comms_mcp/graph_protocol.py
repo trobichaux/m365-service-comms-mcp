@@ -15,7 +15,8 @@ from typing import Any, Protocol, runtime_checkable
 class GraphClientProtocol(Protocol):
     """Subset of Microsoft Graph operations used by the v0.1 MCP tools."""
 
-    async def list_health_overviews(self, *, top: int = 25) -> dict[str, Any]: ...
+    async def list_health_overviews(self, *, top: int = 25) -> dict[str, Any]:
+        """List service health overviews. See ``GraphClient.list_health_overviews``."""
 
     async def list_messages(
         self,
@@ -23,8 +24,11 @@ class GraphClientProtocol(Protocol):
         top: int = 25,
         filter_: str | None = None,
         orderby: str | None = "lastModifiedDateTime desc",
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, Any]:
+        """List Message Center posts. See ``GraphClient.list_messages``."""
 
-    async def get_message(self, message_id: str) -> dict[str, Any]: ...
+    async def get_message(self, message_id: str) -> dict[str, Any]:
+        """Fetch a single Message Center post by ID. See ``GraphClient.get_message``."""
 
-    async def aclose(self) -> None: ...
+    async def aclose(self) -> None:
+        """Release any underlying resources (e.g. HTTP client)."""
