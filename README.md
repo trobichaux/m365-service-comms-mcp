@@ -68,9 +68,118 @@ Then ask your agent:
 
 A browser will open the first time, prompting you to sign in to your tenant.
 On first sign-in, an admin must grant consent for the
-`ServiceHealth.Read.All` and `ServiceMessage.Read.All` Graph permissions
-(this is a one-click step in the consent prompt). Subsequent runs reuse the
-cached token \u2014 no browser unless the token expires.
+`ServiceHealth.Read.All` and `ServiceMessage.Read.All` Graph permissions —
+see [Granting admin consent](#granting-admin-consent) below for what to expect
+and how to handle the common roadblocks. Subsequent runs reuse the cached
+token — no browser unless the token expires.
+
+## Granting admin consent
+
+The `ServiceHealth.Read.All` and `ServiceMessage.Read.All` Graph scopes are
+**admin-only** — Microsoft requires a tenant administrator to consent to them
+before any user can call the API. There are three paths, ranked by how
+locked-down your tenant is.
+
+### Path 1 — You are the admin (one-click consent during sign-in)
+
+This is the default flow. The first time you (or anyone) runs
+`uvx m365-service-comms-mcp --auth-test`:
+
+1. Browser opens to `login.microsoftonline.com`.
+2. Sign in with an account that holds **Global Administrator**, **Privileged
+   Role Administrator**, or **Cloud Application Administrator** (any of these
+   can grant tenant-wide consent).
+3. You'll see a "Permissions requested" dialog listing:
+   - **Read service health** — `ServiceHealth.Read.All`
+   - **Read service messages** — `ServiceMessage.Read.All`
+   - Plus the standard sign-in scopes (`openid`, `profile`, `email`, `offline_access`)
+4. Check the **"Consent on behalf of your organization"** box at the bottom —
+   this is the critical step. Without it, only your own account is consented.
+5. Click **Accept**.
+
+That's it. All users in the tenant who hold one of the
+[required Service Communications roles](#required-roles-for-the-signed-in-user)
+can now run the server.
+
+> **Already consented to Microsoft Graph PowerShell?** Many tenants have
+> already granted tenant-wide consent to the Microsoft Graph PowerShell client
+> for other tooling. If your tenant's already consented to the same scopes
+> for app `14d82eec-204b-4c2f-b7e8-296a70dab67e`, the consent dialog won't
+> appear at all and you go straight to a token.
+
+### Path 2 — You are NOT the admin (request consent)
+
+If you sign in and see a message like *"AADSTS65001: The user or
+administrator has not consented to use the application"* or a "Need admin
+approval" page:
+
+1. Click **"Have an admin account? Sign in with that account"** to switch users
+   directly, OR
+2. Click **"Request approval"** to send a consent request to your tenant's
+   admins through the standard Microsoft Entra request flow.
+
+While you wait, run with `--demo` to keep moving:
+
+```sh
+uvx m365-service-comms-mcp --demo
+```
+
+### Path 3 — Pre-consent via admin URL (no sign-in needed first)
+
+Admins can grant consent before any user even tries to sign in by visiting a
+purpose-built consent URL. Useful for automated tenant onboarding or when an
+admin wants to grant consent without using the MCP server themselves.
+
+For the **default** Microsoft Graph PowerShell client (no app registration
+needed):
+
+```
+https://login.microsoftonline.com/<your-tenant-id>/adminconsent?client_id=14d82eec-204b-4c2f-b7e8-296a70dab67e
+```
+
+Replace `<your-tenant-id>` with your tenant's GUID, GUID alias, or
+verified domain (e.g. `contoso.onmicrosoft.com`). When the admin opens the URL
+and signs in, they'll see the same consent dialog as Path 1; they accept and
+the whole tenant is consented in one shot.
+
+For **your own Entra app registration**, swap the `client_id` for your app's
+Application (client) ID.
+
+### Verifying consent landed
+
+After consent is granted, you can confirm in the
+[Microsoft Entra admin center](https://entra.microsoft.com):
+
+1. **Identity → Applications → Enterprise applications**
+2. Search for `Microsoft Graph PowerShell` (or your custom app name)
+3. Click the app → **Permissions**
+4. You should see `ServiceHealth.Read.All` and `ServiceMessage.Read.All` listed
+   under "Admin consent" with a **Granted for &lt;tenant&gt;** status.
+
+### Required roles for the signed-in user
+
+Even after admin consent is granted, the signed-in user calling the API must
+hold one of these directory roles (these are **API-side** restrictions
+enforced by Microsoft Graph independently of OAuth scopes):
+
+- Service Support Administrator
+- Helpdesk Administrator
+- Global Reader
+- Global Administrator
+
+If your sign-in succeeds but Graph returns `403 Authorization_RequestDenied`,
+the consent is fine but the user lacks one of these roles. Add them via
+**Microsoft Entra admin center → Identity → Roles & admins**.
+
+### Revoking consent
+
+To remove consent later (e.g. you're done evaluating the server):
+
+1. **Microsoft Entra admin center → Identity → Applications → Enterprise applications**
+2. Find the app, click it, then **Properties → Delete**.
+
+This removes the consent grant and revokes any cached tokens for the app on
+that tenant.
 
 ### Try it without any tenant (`--demo` mode)
 
@@ -325,18 +434,24 @@ record including the rendered HTML body.
 
 ## Troubleshooting
 
-### `--auth-test` fails with `Authorization_RequestDenied`
+### `--auth-test` fails with `Authorization_RequestDenied` or `AADSTS65001`
 
-You haven't granted **admin consent** for the API permissions in step 7 of
-[Entra app registration](#entra-app-registration). Open your app registration
-in the Entra admin center, go to **API permissions**, and click **Grant admin
-consent for &lt;your tenant&gt;**.
+You haven't granted **admin consent** yet. See
+[Granting admin consent](#granting-admin-consent) for the three paths
+(one-click during sign-in, request-from-admin, or pre-consent URL).
+
+If you already tried admin consent and it still fails, double-check that
+you ticked the **"Consent on behalf of your organization"** checkbox in the
+consent dialog — without it, only your individual user is consented, and the
+server will fail for any other user.
 
 ### `--auth-test` fails with `Forbidden` even after admin consent
 
-The signed-in user does not hold an admin role. See the role list at the end of
-[Entra app registration](#entra-app-registration). Add the user to one of those
-roles via **Microsoft Entra admin center → Identity → Roles & admins**.
+Admin consent is in place but the signed-in user does not hold one of the
+[required directory roles](#required-roles-for-the-signed-in-user)
+(Service Support Admin / Helpdesk Admin / Global Reader / Global Admin). Add
+the user to one of those roles via
+**Microsoft Entra admin center → Identity → Roles & admins**.
 
 ### Browser doesn't open / I'm on SSH
 
