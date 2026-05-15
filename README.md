@@ -77,7 +77,7 @@ token — no browser unless the token expires.
 
 The `ServiceHealth.Read.All` and `ServiceMessage.Read.All` Graph scopes are
 **admin-only** — Microsoft requires a tenant administrator to consent to them
-before any user can call the API. There are three paths, ranked by how
+before any user can call the API. There are four paths, ranked by how
 locked-down your tenant is.
 
 ### Path 1 — You are the admin (one-click consent during sign-in)
@@ -144,6 +144,55 @@ the whole tenant is consented in one shot.
 
 For **your own Entra app registration**, swap the `client_id` for your app's
 Application (client) ID.
+
+### Path 4 — Microsoft Graph PowerShell (CLI, no browser)
+
+Best for admins who already manage their tenant from PowerShell, or for
+automated tenant-onboarding scripts. Requires the
+[Microsoft Graph PowerShell SDK](https://learn.microsoft.com/powershell/microsoftgraph/installation):
+
+```powershell
+Install-Module Microsoft.Graph -Scope CurrentUser
+```
+
+Then sign in as a **Global / Privileged Role / Cloud Application Administrator**
+and grant the two scopes tenant-wide:
+
+```powershell
+# Sign in. Browser pops once; subsequent CLI consent is silent.
+Connect-MgGraph -Scopes 'Application.ReadWrite.All','DelegatedPermissionGrant.ReadWrite.All' -TenantId <your-tenant-id>
+
+# Resolve the two service principals we'll wire together.
+$client   = Get-MgServicePrincipal -Filter "appId eq '14d82eec-204b-4c2f-b7e8-296a70dab67e'"  # Microsoft Graph PowerShell client
+if (-not $client) { $client = New-MgServicePrincipal -AppId '14d82eec-204b-4c2f-b7e8-296a70dab67e' }
+$resource = Get-MgServicePrincipal -Filter "appId eq '00000003-0000-0000-c000-000000000000'"  # Microsoft Graph itself
+
+# Grant tenant-wide admin consent for the two delegated scopes.
+New-MgOauth2PermissionGrant -BodyParameter @{
+    ClientId    = $client.Id
+    ConsentType = 'AllPrincipals'   # tenant-wide; use 'Principal' + PrincipalId for single-user
+    ResourceId  = $resource.Id
+    Scope       = 'ServiceHealth.Read.All ServiceMessage.Read.All'
+}
+```
+
+For **your own Entra app registration**, swap the first `appId` filter for
+your app's Application (client) ID.
+
+To verify the grant landed:
+
+```powershell
+Get-MgOauth2PermissionGrant -Filter "clientId eq '$($client.Id)'" |
+    Where-Object { $_.Scope -match 'ServiceHealth|ServiceMessage' }
+```
+
+To revoke later:
+
+```powershell
+$grant = Get-MgOauth2PermissionGrant -Filter "clientId eq '$($client.Id)'" |
+    Where-Object { $_.Scope -match 'ServiceHealth|ServiceMessage' }
+Remove-MgOauth2PermissionGrant -OAuth2PermissionGrantId $grant.Id
+```
 
 ### Verifying consent landed
 
