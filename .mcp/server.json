@@ -1,0 +1,39 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/registry/server.schema.json",
+  "name": "io.github.trobichaux/m365-service-comms-mcp",
+  "description": "Read-only MCP server for the Microsoft Graph Service Communications API. Exposes M365 service health and Message Center posts to AI agents using delegated authentication.",
+  "repository": {
+    "url": "https://github.com/trobichaux/m365-service-comms-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registry_name": "pypi",
+      "name": "m365-service-comms-mcp",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "package_arguments": [],
+      "environment_variables": [
+        {
+          "name": "M365_TENANT_ID",
+          "description": "Microsoft Entra tenant GUID.",
+          "is_required": true,
+          "is_secret": false
+        },
+        {
+          "name": "M365_CLIENT_ID",
+          "description": "Microsoft Entra app-registration client GUID with ServiceHealth.Read.All and ServiceMessage.Read.All delegated permissions admin-consented.",
+          "is_required": true,
+          "is_secret": false
+        },
+        {
+          "name": "M365_AUTH_DEVICE_CODE",
+          "description": "Set to 1 to force device-code OAuth flow (headless/SSH).",
+          "is_required": false,
+          "is_secret": false
+        }
+      ]
+    }
+  ]
+}
