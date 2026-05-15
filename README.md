@@ -232,23 +232,22 @@ Add to `~/.cursor/mcp.json`:
 
 ### GitHub Copilot CLI
 
-Add to `~/.github/copilot/mcp.json`:
+Add to `~/.copilot/mcp-config.json` (the file already exists; replace the empty
+`{ "mcpServers": {} }` placeholder):
 
 ```jsonc
 {
-  "servers": {
+  "mcpServers": {
     "m365-svc-comms": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["m365-service-comms-mcp"],
-      "env": {
-        "M365_TENANT_ID": "00000000-0000-0000-0000-000000000000",
-        "M365_CLIENT_ID": "00000000-0000-0000-0000-000000000000"
-      }
+      "args": ["m365-service-comms-mcp@latest"]
     }
   }
 }
 ```
+
+Restart `copilot` and verify with the `/mcp` slash command.
 
 ### Headless / CI (device-code flow)
 
