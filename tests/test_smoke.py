@@ -17,13 +17,31 @@ def test_package_exposes_version() -> None:
     ), f"unexpected version segments: {parts}"
 
 
-def test_build_server_returns_named_fastmcp_with_tools_registered() -> None:
+def test_build_server_default_exposes_read_only_tool_set() -> None:
     mcp = build_server(DemoGraphClient())
     assert mcp.name == SERVER_NAME
-    # FastMCP exposes a tool manager; verify the three v0.1 tools are present.
     tool_names = {tool.name for tool in mcp._tool_manager.list_tools()}
     assert tool_names == {
         "list_service_health",
+        "get_service_health",
+        "list_service_issues",
+        "get_service_issue",
         "list_message_center_posts",
         "get_message_center_post",
+    }
+
+
+def test_build_server_write_enabled_exposes_viewpoint_tools() -> None:
+    mcp = build_server(DemoGraphClient(), write_enabled=True)
+    tool_names = {tool.name for tool in mcp._tool_manager.list_tools()}
+    assert tool_names == {
+        "list_service_health",
+        "get_service_health",
+        "list_service_issues",
+        "get_service_issue",
+        "list_message_center_posts",
+        "get_message_center_post",
+        "set_message_center_posts_read",
+        "set_message_center_posts_archived",
+        "set_message_center_posts_favorite",
     }

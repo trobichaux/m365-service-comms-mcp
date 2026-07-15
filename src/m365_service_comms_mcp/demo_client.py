@@ -15,6 +15,10 @@ audiences:
 The canned responses below are shaped exactly like real Graph responses so the
 LLM-facing experience (and our tool unit tests) match production. Service IDs,
 ``id`` fields, and timestamps are obviously fictional.
+
+Viewpoint writes (mark read / archive / favorite) are also supported in demo
+mode against an in-memory state dict so users can exercise the full v0.2 tool
+surface without a real tenant.
 """
 
 from __future__ import annotations
@@ -28,11 +32,65 @@ from .errors import GraphError
 class DemoGraphClient:
     """In-memory Graph stand-in. Returns deterministic sample data."""
 
+    def __init__(self) -> None:
+        # Per-message viewpoint state, populated lazily on first write. We avoid
+        # seeding defaults so test assertions can distinguish "never touched"
+        # from "explicitly set to False".
+        self._viewpoint: dict[str, dict[str, bool]] = {}
+
     async def aclose(self) -> None:
         """No resources to release."""
 
     async def list_health_overviews(self, *, top: int = 25) -> dict[str, Any]:
         return {"value": _HEALTH_OVERVIEWS[:top]}
+
+    async def get_health_overview(
+        self,
+        service_id: str,
+        *,
+        expand_issues: bool = True,
+    ) -> dict[str, Any]:
+        normalized = service_id.strip().lower()
+        for overview in _HEALTH_OVERVIEWS:
+            if overview["id"].lower() == normalized:
+                result = dict(overview)
+                if expand_issues:
+                    result["issues"] = list(_ISSUES_BY_SERVICE.get(overview["id"], ()))
+                return result
+
+        raise GraphError(
+            status_code=404,
+            code="ResourceNotFound",
+            message=(
+                f"Demo dataset has no health overview with id '{service_id}'. "
+                "Try one of: " + ", ".join(o["id"] for o in _HEALTH_OVERVIEWS)
+            ),
+        )
+
+    async def list_issues(
+        self,
+        *,
+        top: int = 25,
+        filter_: str | None = None,
+        orderby: str | None = "lastModifiedDateTime desc",
+    ) -> dict[str, Any]:
+        del filter_, orderby  # demo mode ignores filter/orderby
+        return {"value": _ISSUES[:top]}
+
+    async def get_issue(self, issue_id: str) -> dict[str, Any]:
+        normalized = issue_id.strip().upper()
+        for issue in _ISSUES:
+            if issue["id"].upper() == normalized:
+                return dict(issue)
+
+        raise GraphError(
+            status_code=404,
+            code="ResourceNotFound",
+            message=(
+                f"Demo dataset has no issue with id '{issue_id}'. "
+                "Try one of: " + ", ".join(i["id"] for i in _ISSUES)
+            ),
+        )
 
     async def list_messages(
         self,
@@ -60,6 +118,56 @@ class DemoGraphClient:
                 "Try one of: " + ", ".join(m["id"] for m in _MESSAGES)
             ),
         )
+
+    async def set_messages_read(
+        self,
+        message_ids: list[str],
+        *,
+        read: bool,
+    ) -> dict[str, Any]:
+        self._apply_viewpoint(message_ids, key="read", value=read)
+        return {"value": True}
+
+    async def set_messages_archive(
+        self,
+        message_ids: list[str],
+        *,
+        archived: bool,
+    ) -> dict[str, Any]:
+        self._apply_viewpoint(message_ids, key="archived", value=archived)
+        return {"value": True}
+
+    async def set_messages_favorite(
+        self,
+        message_ids: list[str],
+        *,
+        favorite: bool,
+    ) -> dict[str, Any]:
+        self._apply_viewpoint(message_ids, key="favorite", value=favorite)
+        return {"value": True}
+
+    def viewpoint_state(self, message_id: str) -> dict[str, bool]:
+        """Return the in-memory viewpoint state for ``message_id``.
+
+        Exposed for tests; the real Graph backend has no equivalent helper.
+        """
+
+        return dict(self._viewpoint.get(message_id.strip().upper(), {}))
+
+    def _apply_viewpoint(self, message_ids: list[str], *, key: str, value: bool) -> None:
+        known_ids = {m["id"].upper() for m in _MESSAGES}
+        for raw in message_ids:
+            normalized = raw.strip().upper()
+            if normalized not in known_ids:
+                raise GraphError(
+                    status_code=404,
+                    code="ResourceNotFound",
+                    message=(
+                        f"Demo dataset has no message with id '{raw}'. "
+                        "Try one of: " + ", ".join(sorted(known_ids))
+                    ),
+                )
+            self._viewpoint.setdefault(normalized, {})[key] = value
 
 
 def _iso(days_ago: int) -> str:
@@ -103,6 +211,67 @@ _HEALTH_OVERVIEWS: list[dict[str, Any]] = [
         "featureGroup": "Service",
     },
 ]
+
+
+_ISSUES: list[dict[str, Any]] = [
+    {
+        "id": "MT112233",
+        "title": "Some users may be unable to send messages in Microsoft Teams",
+        "service": "Microsoft Teams",
+        "feature": "Teams components",
+        "featureGroup": "Teams components",
+        "classification": "incident",
+        "status": "serviceRestored",
+        "impactDescription": (
+            "Affected users were unable to send 1:1 or group chat messages for the duration "
+            "of the incident."
+        ),
+        "isResolved": True,
+        "startDateTime": _iso(days_ago=3),
+        "endDateTime": _iso(days_ago=2),
+        "lastModifiedDateTime": _iso(days_ago=2),
+    },
+    {
+        "id": "EX112299",
+        "title": "Extended Recovery — Some Exchange Online users may experience delayed delivery",
+        "service": "Exchange Online",
+        "feature": "E-Mail and calendar access",
+        "featureGroup": "E-Mail and calendar access",
+        "classification": "incident",
+        "status": "extendedRecovery",
+        "impactDescription": (
+            "Mail delivery for a small subset of mailboxes is delayed while backlog processing completes."
+        ),
+        "isResolved": False,
+        "startDateTime": _iso(days_ago=1),
+        "endDateTime": None,
+        "lastModifiedDateTime": _iso(days_ago=0),
+    },
+    {
+        "id": "PB445566",
+        "title": "Power BI service is in extended recovery following capacity rebalancing",
+        "service": "Power BI",
+        "feature": "Service",
+        "featureGroup": "Service",
+        "classification": "advisory",
+        "status": "extendedRecovery",
+        "impactDescription": (
+            "Capacity rebalancing has completed; tenants may see intermittent report load delays during the "
+            "extended recovery window."
+        ),
+        "isResolved": False,
+        "startDateTime": _iso(days_ago=1),
+        "endDateTime": None,
+        "lastModifiedDateTime": _iso(days_ago=0),
+    },
+]
+
+
+_ISSUES_BY_SERVICE: dict[str, list[dict[str, Any]]] = {
+    "microsoftteams": [issue for issue in _ISSUES if issue["service"] == "Microsoft Teams"],
+    "Exchange": [issue for issue in _ISSUES if issue["service"] == "Exchange Online"],
+    "PowerBIcom": [issue for issue in _ISSUES if issue["service"] == "Power BI"],
+}
 
 
 _MESSAGES: list[dict[str, Any]] = [

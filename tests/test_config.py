@@ -8,6 +8,7 @@ from m365_service_comms_mcp.config import (
     DEFAULT_PUBLIC_CLIENT_ID,
     DEFAULT_TENANT_ID,
     GRAPH_SCOPES,
+    SERVICE_MESSAGE_VIEWPOINT_WRITE_SCOPE,
     AuthConfig,
 )
 
@@ -18,6 +19,7 @@ def test_from_env_reads_explicit_vars() -> None:
     assert cfg.client_id == "client-guid"
     assert cfg.scopes == GRAPH_SCOPES
     assert cfg.prefer_device_code is False
+    assert cfg.write_enabled is False
     assert cfg.using_default_client is False
 
 
@@ -69,3 +71,41 @@ def test_from_env_device_code_flag_falsy(flag: str) -> None:
         {"M365_TENANT_ID": "t", "M365_CLIENT_ID": "c", "M365_AUTH_DEVICE_CODE": flag}
     )
     assert cfg.prefer_device_code is False
+
+
+@pytest.mark.parametrize("flag", ["1", "true", "TRUE", "Yes", "on"])
+def test_from_env_write_flag_truthy(flag: str) -> None:
+    cfg = AuthConfig.from_env({"M365_ENABLE_WRITE": flag})
+    assert cfg.write_enabled is True
+
+
+@pytest.mark.parametrize("flag", ["0", "false", "no", "off", "", "  "])
+def test_from_env_write_flag_falsy(flag: str) -> None:
+    cfg = AuthConfig.from_env({"M365_ENABLE_WRITE": flag})
+    assert cfg.write_enabled is False
+
+
+def test_effective_scopes_includes_write_scope_when_enabled() -> None:
+    cfg = AuthConfig(write_enabled=True)
+    assert cfg.effective_scopes == GRAPH_SCOPES + (SERVICE_MESSAGE_VIEWPOINT_WRITE_SCOPE,)
+
+
+def test_effective_scopes_omits_write_scope_when_disabled() -> None:
+    cfg = AuthConfig(write_enabled=False)
+    assert cfg.effective_scopes == GRAPH_SCOPES
+    assert SERVICE_MESSAGE_VIEWPOINT_WRITE_SCOPE not in cfg.effective_scopes
+
+
+def test_from_env_write_override_true_beats_falsy_env() -> None:
+    cfg = AuthConfig.from_env({"M365_ENABLE_WRITE": "0"}, write_enabled_override=True)
+    assert cfg.write_enabled is True
+
+
+def test_from_env_write_override_false_beats_truthy_env() -> None:
+    cfg = AuthConfig.from_env({"M365_ENABLE_WRITE": "1"}, write_enabled_override=False)
+    assert cfg.write_enabled is False
+
+
+def test_from_env_write_override_none_reads_env() -> None:
+    cfg = AuthConfig.from_env({"M365_ENABLE_WRITE": "1"}, write_enabled_override=None)
+    assert cfg.write_enabled is True

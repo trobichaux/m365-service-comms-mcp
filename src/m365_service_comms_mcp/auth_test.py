@@ -31,17 +31,24 @@ def run_auth_test(
     err: TextIO | None = None,
     auth_provider: GraphAuthProvider | None = None,
     http_client: httpx.Client | None = None,
+    write_enabled: bool | None = None,
 ) -> int:
     """Execute the auth-test flow.
 
     All collaborators are injectable so the function can be tested without
     standing up real network or browser interactions.
+
+    ``write_enabled`` resolves the viewpoint-write gate. ``None`` (the default)
+    reads ``M365_ENABLE_WRITE`` from the environment via
+    :meth:`AuthConfig.from_env`. Pass an explicit ``True`` / ``False`` to mirror
+    the CLI flag and keep its effective scope set consistent with what the
+    server will request.
     """
 
     out = out or sys.stdout
     err = err or sys.stderr
 
-    config = AuthConfig.from_env()
+    config = AuthConfig.from_env(write_enabled_override=write_enabled)
 
     print(f"Tenant ID : {config.tenant_id}", file=out)
     print(f"Client ID : {config.client_id}", file=out)
@@ -54,7 +61,8 @@ def run_auth_test(
         f"Auth flow : {'device-code' if config.prefer_device_code else 'interactive-browser (default)'}",
         file=out,
     )
-    print(f"Scopes    : {', '.join(config.scopes)}", file=out)
+    print(f"Write mode: {'enabled' if config.write_enabled else 'disabled (read-only)'}", file=out)
+    print(f"Scopes    : {', '.join(config.effective_scopes)}", file=out)
     print("Acquiring access token \u2026", file=out)
 
     provider = auth_provider or GraphAuthProvider(config=config)
@@ -88,10 +96,15 @@ def run_auth_test(
             f"\u2713  Graph responded HTTP 200 (returned {count} healthOverview record(s)).",
             file=out,
         )
-        print(
-            "Auth test passed. ServiceHealth.Read.All is granted and admin consent is in place.",
-            file=out,
+        success_message = (
+            "Auth test passed. ServiceHealth.Read.All is granted and admin consent is in place."
         )
+        if config.write_enabled:
+            success_message += (
+                "\nNote: write mode is enabled. The probe only exercises the read scope; "
+                "ServiceMessageViewpoint.Write consent will be requested on first viewpoint write."
+            )
+        print(success_message, file=out)
         return 0
 
     if response.status_code in (401, 403):
@@ -101,10 +114,19 @@ def run_auth_test(
             f"\u274c  Graph rejected the token (HTTP {response.status_code}): {graph_message}",
             file=err,
         )
+        causes = [
+            "Admin consent not granted for ServiceHealth.Read.All / ServiceMessage.Read.All",
+            "Signed-in user lacks Service Support / Helpdesk / Global Reader / Global Admin role",
+        ]
+        if config.write_enabled:
+            causes.append(
+                "Admin consent not granted for ServiceMessageViewpoint.Write "
+                "(required because --enable-write / M365_ENABLE_WRITE is set)"
+            )
+        bullets = "\n".join(f"      \u2022 {cause}" for cause in causes)
         print(
             "    Most common causes:\n"
-            "      \u2022 Admin consent not granted for ServiceHealth.Read.All / ServiceMessage.Read.All\n"
-            "      \u2022 Signed-in user lacks Service Support / Helpdesk / Global Reader / Global Admin role\n"
+            f"{bullets}\n"
             "    See README.md \u2192 Granting admin consent.",
             file=err,
         )

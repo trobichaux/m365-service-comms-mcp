@@ -195,3 +195,198 @@ async def test_unexpected_status_raises_with_text_fallback(
     assert info.value.status_code == 418
     assert info.value.code is None
     assert "teapot" in info.value.message
+
+
+# --- get_health_overview -----------------------------------------------------
+
+
+async def test_get_health_overview_url_encodes_path_segment(
+    client: GraphClient,
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(
+        url=(
+            f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/healthOverviews/"
+            "Microsoft%20365%20suite?%24expand=issues"
+        ),
+        method="GET",
+        json={"id": "Microsoft 365 suite", "issues": []},
+    )
+
+    result = await client.get_health_overview("Microsoft 365 suite")
+
+    assert result["id"] == "Microsoft 365 suite"
+
+
+async def test_get_health_overview_can_omit_expand_issues(
+    client: GraphClient,
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(
+        url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/healthOverviews/Exchange",
+        method="GET",
+        json={"id": "Exchange"},
+    )
+
+    await client.get_health_overview("Exchange", expand_issues=False)
+
+
+async def test_get_health_overview_validates_id(client: GraphClient) -> None:
+    with pytest.raises(ValueError):
+        await client.get_health_overview("")
+
+
+# --- list_issues / get_issue -------------------------------------------------
+
+
+async def test_list_issues_includes_filter_and_orderby(
+    client: GraphClient,
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(
+        url=(
+            f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/issues"
+            "?%24top=10&%24filter=isResolved+eq+false"
+            "&%24orderby=lastModifiedDateTime+desc"
+        ),
+        method="GET",
+        json={"value": []},
+    )
+
+    await client.list_issues(top=10, filter_="isResolved eq false")
+
+
+async def test_get_issue_validates_id(client: GraphClient) -> None:
+    with pytest.raises(ValueError):
+        await client.get_issue("")
+
+
+async def test_get_issue_calls_correct_url(
+    client: GraphClient,
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(
+        url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/issues/MO248163",
+        method="GET",
+        json={"id": "MO248163"},
+    )
+
+    result = await client.get_issue("MO248163")
+
+    assert result["id"] == "MO248163"
+
+
+# --- viewpoint POSTs ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "read,expected_action",
+    [(True, "markRead"), (False, "markUnread")],
+)
+async def test_set_messages_read_posts_correct_endpoint(
+    client: GraphClient,
+    httpx_mock: HTTPXMock,
+    read: bool,
+    expected_action: str,
+) -> None:
+    httpx_mock.add_response(
+        url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/messages/{expected_action}",
+        method="POST",
+        json={"value": True},
+    )
+
+    result = await client.set_messages_read(["MC100001", "MC100002"], read=read)
+
+    assert result == {"value": True}
+    request = httpx_mock.get_requests()[-1]
+    assert request.method == "POST"
+    import json as _json
+
+    body = _json.loads(request.content)
+    assert body == {"messageIds": ["MC100001", "MC100002"]}
+
+
+@pytest.mark.parametrize(
+    "archived,expected_action",
+    [(True, "archive"), (False, "unarchive")],
+)
+async def test_set_messages_archive_posts_correct_endpoint(
+    client: GraphClient,
+    httpx_mock: HTTPXMock,
+    archived: bool,
+    expected_action: str,
+) -> None:
+    httpx_mock.add_response(
+        url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/messages/{expected_action}",
+        method="POST",
+        json={"value": True},
+    )
+
+    await client.set_messages_archive(["MC100001"], archived=archived)
+
+
+@pytest.mark.parametrize(
+    "favorite,expected_action",
+    [(True, "favorite"), (False, "unfavorite")],
+)
+async def test_set_messages_favorite_posts_correct_endpoint(
+    client: GraphClient,
+    httpx_mock: HTTPXMock,
+    favorite: bool,
+    expected_action: str,
+) -> None:
+    httpx_mock.add_response(
+        url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/messages/{expected_action}",
+        method="POST",
+        json={"value": True},
+    )
+
+    await client.set_messages_favorite(["MC100001"], favorite=favorite)
+
+
+async def test_viewpoint_value_false_raises_graph_error(
+    client: GraphClient,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """``{"value": false}`` from Graph means the operation failed logically.
+
+    Without this guard, callers that just look at HTTP 200 would silently
+    report success when Graph actually rejected the request.
+    """
+
+    httpx_mock.add_response(
+        url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/messages/markRead",
+        method="POST",
+        json={"value": False},
+        status_code=200,
+    )
+
+    with pytest.raises(GraphError) as info:
+        await client.set_messages_read(["MC100001"], read=True)
+
+    assert info.value.status_code == 200
+    assert info.value.code == "ServiceCommunicationsOperationFailed"
+
+
+async def test_post_429_is_retried(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """The POST path shares retry handling with the GET path."""
+
+    client = GraphClient(auth=_StubProvider(), max_attempts=3)
+    httpx_mock.add_response(
+        url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/messages/markRead",
+        method="POST",
+        status_code=429,
+        json={"error": {"code": "TooManyRequests", "message": "Slow down"}},
+    )
+    httpx_mock.add_response(
+        url=f"{GRAPH_BASE_URL}/admin/serviceAnnouncement/messages/markRead",
+        method="POST",
+        status_code=200,
+        json={"value": True},
+    )
+
+    result = await client.set_messages_read(["MC100001"], read=True)
+
+    assert result == {"value": True}

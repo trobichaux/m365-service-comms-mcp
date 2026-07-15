@@ -129,3 +129,86 @@ def test_returns_1_on_unexpected_status(
     assert rc == 1
     assert "Unexpected response" in err.getvalue()
     assert "HTTP 500" in err.getvalue()
+
+
+def test_default_scope_list_omits_write_scope(
+    env_set: None,
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(url=_GRAPH_HEALTH_PROBE, method="GET", json={"value": []})
+    out = io.StringIO()
+
+    rc = run_auth_test(out=out, err=io.StringIO(), auth_provider=_StubProvider())
+
+    assert rc == 0
+    text = out.getvalue()
+    assert "Write mode: disabled" in text
+    assert "ServiceMessageViewpoint.Write" not in text
+
+
+def test_write_enabled_surfaces_write_scope_in_output(
+    env_set: None,
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(url=_GRAPH_HEALTH_PROBE, method="GET", json={"value": []})
+    out = io.StringIO()
+
+    rc = run_auth_test(
+        out=out,
+        err=io.StringIO(),
+        auth_provider=_StubProvider(),
+        write_enabled=True,
+    )
+
+    assert rc == 0
+    text = out.getvalue()
+    assert "Write mode: enabled" in text
+    assert "ServiceMessageViewpoint.Write" in text
+    # The success message should warn that the probe didn't exercise the write scope.
+    assert "ServiceMessageViewpoint.Write" in text
+    assert "first viewpoint write" in text
+
+
+def test_write_enabled_403_guidance_mentions_write_scope(
+    env_set: None,
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(
+        url=_GRAPH_HEALTH_PROBE,
+        method="GET",
+        json={"error": {"code": "Authorization_RequestDenied", "message": "denied"}},
+        status_code=403,
+    )
+    err = io.StringIO()
+
+    rc = run_auth_test(
+        out=io.StringIO(),
+        err=err,
+        auth_provider=_StubProvider(),
+        write_enabled=True,
+    )
+
+    assert rc == 1
+    text = err.getvalue()
+    assert "ServiceMessageViewpoint.Write" in text
+
+
+def test_write_enabled_override_beats_env(
+    monkeypatch: pytest.MonkeyPatch,
+    httpx_mock: HTTPXMock,
+) -> None:
+    monkeypatch.setenv("M365_TENANT_ID", "t")
+    monkeypatch.setenv("M365_CLIENT_ID", "c")
+    monkeypatch.setenv("M365_ENABLE_WRITE", "0")
+    httpx_mock.add_response(url=_GRAPH_HEALTH_PROBE, method="GET", json={"value": []})
+    out = io.StringIO()
+
+    rc = run_auth_test(
+        out=out,
+        err=io.StringIO(),
+        auth_provider=_StubProvider(),
+        write_enabled=True,
+    )
+
+    assert rc == 0
+    assert "Write mode: enabled" in out.getvalue()

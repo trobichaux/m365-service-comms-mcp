@@ -76,7 +76,7 @@ class GraphAuthProvider:
         """
 
         credential = self._ensure_credential()
-        return credential.get_token(*self.config.scopes)
+        return credential.get_token(*self.config.effective_scopes)
 
     def _ensure_credential(self) -> TokenCredential:
         if self._credential is None:

@@ -1,20 +1,30 @@
 """Microsoft Graph HTTP client for the Service Communications API.
 
-A thin async wrapper around :class:`httpx.AsyncClient` covering the three
-endpoints used by the v0.1 tools:
+A thin async wrapper around :class:`httpx.AsyncClient` covering the endpoints
+used by the v0.2 tools:
 
 - ``GET /admin/serviceAnnouncement/healthOverviews``
+- ``GET /admin/serviceAnnouncement/healthOverviews/{id}``
+- ``GET /admin/serviceAnnouncement/issues``
+- ``GET /admin/serviceAnnouncement/issues/{id}``
 - ``GET /admin/serviceAnnouncement/messages``
 - ``GET /admin/serviceAnnouncement/messages/{id}``
+- ``POST /admin/serviceAnnouncement/messages/markRead`` / ``markUnread``
+- ``POST /admin/serviceAnnouncement/messages/archive`` / ``unarchive``
+- ``POST /admin/serviceAnnouncement/messages/favorite`` / ``unfavorite``
 
 Cross-cutting concerns:
 
 - **Auth**: each request adds a fresh bearer token via :class:`GraphAuthProvider`.
 - **Retries**: HTTP 429 and retryable 5xx are retried up to ``max_attempts``
   times. The wait between attempts uses the response's ``Retry-After`` header
-  when present, otherwise an exponential backoff.
+  when present, otherwise an exponential backoff. The viewpoint POSTs are
+  idempotent (mark-read-twice = same as once), so the same retry policy
+  applies to GETs and POSTs alike.
 - **Errors**: non-success responses raise :class:`~m365_service_comms_mcp.errors.GraphError`
-  with the Graph error envelope parsed out for the LLM.
+  with the Graph error envelope parsed out for the LLM. Viewpoint POSTs
+  that return HTTP 200 with ``{"value": false}`` are also surfaced as
+  :class:`GraphError` so a logical failure isn't silently reported as success.
 """
 
 from __future__ import annotations
@@ -96,6 +106,68 @@ class GraphClient:
             params={"$top": str(top)},
         )
 
+    async def get_health_overview(
+        self,
+        service_id: str,
+        *,
+        expand_issues: bool = True,
+    ) -> dict[str, Any]:
+        """Get the health overview for a single service, with related issues.
+
+        Maps to ``GET /admin/serviceAnnouncement/healthOverviews/{id}``.
+
+        ``service_id`` is the ``id`` field from a healthOverview record
+        (e.g. ``Exchange``, ``microsoftteams``), URL-encoded into the path so
+        unusual characters in future Graph IDs don't break the request.
+        """
+
+        if not service_id or not service_id.strip():
+            raise ValueError("service_id must be a non-empty string")
+
+        from urllib.parse import quote
+
+        encoded = quote(service_id.strip(), safe="")
+        params: dict[str, str] = {}
+        if expand_issues:
+            params["$expand"] = "issues"
+        return await self._get(
+            f"/admin/serviceAnnouncement/healthOverviews/{encoded}",
+            params=params or None,
+        )
+
+    async def list_issues(
+        self,
+        *,
+        top: int = 25,
+        filter_: str | None = None,
+        orderby: str | None = "lastModifiedDateTime desc",
+    ) -> dict[str, Any]:
+        """List service health issues for the tenant.
+
+        Maps to ``GET /admin/serviceAnnouncement/issues``. ``filter_`` is passed
+        verbatim to the Graph ``$filter`` query option; callers must build valid
+        OData filter expressions (including escaping single quotes in string
+        literals).
+        """
+
+        params: dict[str, str] = {"$top": str(top)}
+        if filter_:
+            params["$filter"] = filter_
+        if orderby:
+            params["$orderby"] = orderby
+        return await self._get("/admin/serviceAnnouncement/issues", params=params)
+
+    async def get_issue(self, issue_id: str) -> dict[str, Any]:
+        """Fetch a single service health issue by ID.
+
+        Maps to ``GET /admin/serviceAnnouncement/issues/{id}``.
+        """
+
+        if not issue_id or not issue_id.strip():
+            raise ValueError("issue_id must be a non-empty string")
+
+        return await self._get(f"/admin/serviceAnnouncement/issues/{issue_id.strip()}")
+
     async def list_messages(
         self,
         *,
@@ -128,14 +200,77 @@ class GraphClient:
 
         return await self._get(f"/admin/serviceAnnouncement/messages/{message_id.strip()}")
 
+    async def set_messages_read(
+        self,
+        message_ids: list[str],
+        *,
+        read: bool,
+    ) -> dict[str, Any]:
+        """Mark messages as read (``read=True``) or unread (``read=False``).
+
+        Maps to ``POST /admin/serviceAnnouncement/messages/markRead`` and the
+        ``markUnread`` companion. Returns the raw Graph response so callers can
+        inspect any future fields; the underlying ``_post`` already raised
+        :class:`GraphError` when Graph reported a logical failure.
+        """
+
+        action = "markRead" if read else "markUnread"
+        return await self._post(
+            f"/admin/serviceAnnouncement/messages/{action}",
+            json={"messageIds": list(message_ids)},
+        )
+
+    async def set_messages_archive(
+        self,
+        message_ids: list[str],
+        *,
+        archived: bool,
+    ) -> dict[str, Any]:
+        """Archive (``archived=True``) or unarchive a list of messages."""
+
+        action = "archive" if archived else "unarchive"
+        return await self._post(
+            f"/admin/serviceAnnouncement/messages/{action}",
+            json={"messageIds": list(message_ids)},
+        )
+
+    async def set_messages_favorite(
+        self,
+        message_ids: list[str],
+        *,
+        favorite: bool,
+    ) -> dict[str, Any]:
+        """Favorite (``favorite=True``) or unfavorite a list of messages."""
+
+        action = "favorite" if favorite else "unfavorite"
+        return await self._post(
+            f"/admin/serviceAnnouncement/messages/{action}",
+            json={"messageIds": list(message_ids)},
+        )
+
     async def _get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, Any]:
+        return await self._request("GET", path, params=params, json=None)
+
+    async def _post(self, path: str, *, json: dict[str, Any]) -> dict[str, Any]:
+        return await self._request("POST", path, params=None, json=json)
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | None,
+        json: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
 
         async def _attempt() -> dict[str, Any]:
             token = self._auth.get_token().token
-            response = await self._client.get(
+            response = await self._client.request(
+                method,
                 url,
                 params=params,
+                json=json,
                 headers={"Authorization": f"Bearer {token}"},
             )
             return _interpret_response(response)
@@ -211,7 +346,7 @@ def _interpret_response(response: httpx.Response) -> dict[str, Any]:
 
     if response.status_code == 200:
         try:
-            return response.json()
+            body = response.json()
         except ValueError as exc:
             raise GraphError(
                 status_code=response.status_code,
@@ -219,6 +354,24 @@ def _interpret_response(response: httpx.Response) -> dict[str, Any]:
                 message=f"Graph returned non-JSON body: {exc}",
                 request_id=response.headers.get("request-id"),
             ) from None
+
+        # Viewpoint POSTs (markRead / archive / favorite / ...) return
+        # {"value": true} on success and {"value": false} on logical failure.
+        # Surface ``false`` as an error rather than letting it be silently
+        # reported as success by callers that only check for HTTP 200.
+        if isinstance(body, dict) and body.get("value") is False:
+            raise GraphError(
+                status_code=response.status_code,
+                code="ServiceCommunicationsOperationFailed",
+                message=(
+                    "Graph returned HTTP 200 but the operation reported failure "
+                    "(value=false). Common causes include unknown message IDs or "
+                    "missing per-user permissions to mutate the requested state."
+                ),
+                request_id=response.headers.get("request-id"),
+            )
+
+        return body
 
     body = _safe_json(response)
     request_id = response.headers.get("request-id")
